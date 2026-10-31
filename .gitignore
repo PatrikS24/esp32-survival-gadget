@@ -1,0 +1,7 @@
+.cache/
+.git/
+build/
+sdkconfig
+sdkconfig.old
+components/u8g2/u8g2
+
