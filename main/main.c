@@ -7,6 +7,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "u8g2.h"
+#include <stdio.h>
 #include <string.h>
 
 #define PIN_SDA 3
@@ -38,17 +39,14 @@ static i2c_master_dev_handle_t battery_dev;
 static uint8_t tx_buf[256];
 static size_t tx_len;
 
-static uint8_t byteCb(u8x8_t *u8x8, uint8_t msg, uint8_t arg_int,
-                      void *arg_ptr);
-static uint8_t gpioDelayCb(u8x8_t *u8x8, uint8_t msg, uint8_t arg_int,
-                           void *arg_ptr);
+static uint8_t byteCb(u8x8_t *u8x8, uint8_t msg, uint8_t arg_int, void *arg_ptr);
+static uint8_t gpioDelayCb(u8x8_t *u8x8, uint8_t msg, uint8_t arg_int, void *arg_ptr);
 static void setUpDisplay(u8g2_t *u8g2);
 static void addI2cDevice(uint8_t addr, i2c_master_dev_handle_t *out);
 
 static esp_err_t readBatteryRegister(uint8_t reg, uint16_t *out);
 static battery_data getBatteryData();
-static void drawScreen(u8g2_t *u8g2, bmp280_results *bmp_results,
-                       battery_data *battery_data);
+static void drawScreen(u8g2_t *u8g2, bmp280_results *bmp_results, battery_data *battery_data);
 
 void app_main(void)
 {
@@ -181,4 +179,30 @@ static void addI2cDevice(uint8_t addr, i2c_master_dev_handle_t *out)
         .scl_speed_hz = 400000,
     };
     ESP_ERROR_CHECK(i2c_master_bus_add_device(bus, &cfg, out));
+}
+
+static void drawScreen(u8g2_t *u8g2, bmp280_results *bmp_results, battery_data *battery_data)
+{
+    u8g2_ClearBuffer(u8g2);
+    u8g2_SetFont(u8g2, u8g2_font_ncenB08_tr);
+
+    // Battery
+    char s_battery[32];
+    snprintf(s_battery, sizeof(s_battery), "Battery: %.1fV  %.0f%%", battery_data->voltage, battery_data->percent);
+    u8g2_DrawStr(u8g2, 5, 5, s_battery);
+
+    // BMP280
+    char s_temp[32];
+    snprintf(s_temp, sizeof(s_temp), "Temperature: %.1f°C", bmp_results->temperature / 100.0f);
+    u8g2_DrawStr(u8g2, 5, 30, s_temp);
+
+    char s_pressure[32];
+    snprintf(s_pressure, sizeof(s_pressure), "Pressure: %.1fpa", bmp_results->pressure / 256.0f);
+    u8g2_DrawStr(u8g2, 5, 60, s_pressure);
+
+    char s_alt[32];
+    snprintf(s_alt, sizeof(s_alt), "Altitude: %dm", bmp_results->altitude);
+    u8g2_DrawStr(u8g2, 5, 90, s_alt);
+
+    u8g2_SendBuffer(u8g2);
 }
