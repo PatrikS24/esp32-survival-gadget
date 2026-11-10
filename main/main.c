@@ -1,3 +1,4 @@
+#include "driver/gpio.h"
 #include "driver/i2c_master.h"
 #include "driver/i2c_types.h"
 #include "esp_err.h"
@@ -10,12 +11,13 @@
 #include <stdio.h>
 #include <string.h>
 
+#define PIN_I2C_POWER 7
 #define PIN_SDA 3
 #define PIN_SCL 4
 #define MAX17048_ADDR 0x36
 #define REG_VCELL 0x02
 #define REG_SOC 0x04
-#define OLED_ADDR 0x3D
+#define OLED_ADDR 0x3C
 
 typedef struct bmp280_results
 {
@@ -41,7 +43,10 @@ static size_t tx_len;
 
 static uint8_t byteCb(u8x8_t *u8x8, uint8_t msg, uint8_t arg_int, void *arg_ptr);
 static uint8_t gpioDelayCb(u8x8_t *u8x8, uint8_t msg, uint8_t arg_int, void *arg_ptr);
+
+static void powerI2cPort(void);
 static void setUpDisplay(u8g2_t *u8g2);
+static void initBus(void);
 static void addI2cDevice(uint8_t addr, i2c_master_dev_handle_t *out);
 
 static esp_err_t readBatteryRegister(uint8_t reg, uint16_t *out);
@@ -52,19 +57,29 @@ void app_main(void)
 {
     ESP_LOGI(TAG, "Starting, free heap: %lu",
              (unsigned long)esp_get_free_heap_size());
+    powerI2cPort();
+    initBus();
 
+    for (uint8_t addr = 0x08; addr < 0x78; addr++)
+    {
+        if (i2c_master_probe(bus, addr, 100) == ESP_OK)
+        {
+            ESP_LOGI(TAG, "Device found at: 0x%02X", addr);
+        }
+    }
     u8g2_t u8g2;
     setUpDisplay(&u8g2);
     addI2cDevice(MAX17048_ADDR, &battery_dev);
+
     while (1)
     {
         vTaskDelay(pdMS_TO_TICKS(1000));
-        ESP_LOGI(TAG, "Testing");
+        ESP_LOGI(TAG, "Testing1");
         // todo: pull data from modules and draw using &u8g2
     }
 }
 
-static void setUpDisplay(u8g2_t *u8g2)
+static void initBus(void)
 {
     i2c_master_bus_config_t bus_cfg = {
         .i2c_port = I2C_NUM_0,
@@ -72,18 +87,35 @@ static void setUpDisplay(u8g2_t *u8g2)
         .scl_io_num = PIN_SCL,
         .clk_source = I2C_CLK_SRC_DEFAULT,
         .glitch_ignore_cnt = 7,
-        .flags.enable_internal_pullup = false,
+        .flags.enable_internal_pullup = true, // for testing
     };
     ESP_ERROR_CHECK(i2c_new_master_bus(&bus_cfg, &bus));
+}
 
+static void powerI2cPort(void)
+{
+    gpio_reset_pin(PIN_I2C_POWER);
+    gpio_set_direction(PIN_I2C_POWER, GPIO_MODE_OUTPUT);
+    gpio_set_level(PIN_I2C_POWER, 1);
+    vTaskDelay(pdMS_TO_TICKS(100)); // let the OLED power up
+}
+
+static void setUpDisplay(u8g2_t *u8g2)
+{
     addI2cDevice(OLED_ADDR, &oled_dev);
     u8g2_Setup_sh1107_i2c_128x128_f(u8g2, U8G2_R0, byteCb, gpioDelayCb);
     u8g2_InitDisplay(u8g2);
     u8g2_SetPowerSave(u8g2, 0);
+    // Fix offset
+    u8x8_t *u8x8 = u8g2_GetU8x8(u8g2);
+    u8x8_cad_StartTransfer(u8x8);
+    u8x8_cad_SendCmd(u8x8, 0xD3);
+    u8x8_cad_SendArg(u8x8, 0x5F);
+    u8x8_cad_EndTransfer(u8x8);
 
     u8g2_ClearBuffer(u8g2);
     u8g2_SetFont(u8g2, u8g2_font_ncenB08_tr);
-    u8g2_DrawStr(u8g2, 0, 20, "Hello World");
+    u8g2_DrawStr(u8g2, 0, 10, "Hello World");
     u8g2_SendBuffer(u8g2);
 }
 
